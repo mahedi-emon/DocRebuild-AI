@@ -51,7 +51,11 @@ export interface QAReport {
   }>;
 }
 
-const API_BASE = 'http://localhost:8000';
+const API_HOST = import.meta.env.VITE_API_BASE 
+  ? import.meta.env.VITE_API_BASE.replace(/^https?:\/\//, '') 
+  : `${window.location.hostname}:8000`;
+
+const API_BASE = `${window.location.protocol}//${API_HOST}`;
 
 export const api = {
   getDocuments: async (page = 1, pageSize = 20, status?: string): Promise<{ documents: DocumentInfo[]; total: number }> => {
@@ -148,7 +152,8 @@ export const api = {
 };
 
 export function connectJobProgressWS(jobId: string, onMessage: (data: any) => void): WebSocket {
-  const ws = new WebSocket(`ws://localhost:8000/ws/jobs/${jobId}`);
+  const ws_protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const ws = new WebSocket(`${ws_protocol}//${API_HOST}/ws/jobs/${jobId}`);
   ws.onmessage = (event) => {
     try {
       const data = JSON.parse(event.data);
