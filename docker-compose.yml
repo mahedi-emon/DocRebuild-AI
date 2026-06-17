@@ -1,26 +1,12 @@
 version: "3.9"
 
 services:
-  # ── Redis Message Broker ──
-  redis:
-    image: redis:7-alpine
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis_data:/data
-    command: redis-server --appendonly yes --maxmemory 512mb
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    restart: unless-stopped
-
-  # ── FastAPI Backend ──
+  # ── FastAPI Backend (GPU / CUDA Enabled) ──
   backend:
     build:
       context: .
-      dockerfile: Dockerfile.backend
+      dockerfile: Dockerfile.worker
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 1
     ports:
       - "8000:8000"
     volumes:
@@ -30,32 +16,6 @@ services:
       - .env
     environment:
       - DATABASE_URL=sqlite+aiosqlite:///./data/docrebuild.db
-      - REDIS_URL=redis://redis:6379/0
-      - CELERY_BROKER_URL=redis://redis:6379/0
-      - CELERY_RESULT_BACKEND=redis://redis:6379/1
-    depends_on:
-      redis:
-        condition: service_healthy
-    restart: unless-stopped
-
-  # ── Celery Worker (GPU tasks: OCR, Layout, Vision) ──
-  worker-gpu:
-    build:
-      context: .
-      dockerfile: Dockerfile.worker
-    command: celery -A workers.celery_app worker -Q gpu --loglevel=info --concurrency=1
-    volumes:
-      - ./data:/app/data
-      - ./backend:/app/backend
-    env_file:
-      - .env
-    environment:
-      - REDIS_URL=redis://redis:6379/0
-      - CELERY_BROKER_URL=redis://redis:6379/0
-      - CELERY_RESULT_BACKEND=redis://redis:6379/1
-    depends_on:
-      redis:
-        condition: service_healthy
     deploy:
       resources:
         reservations:
@@ -63,26 +23,6 @@ services:
             - driver: nvidia
               count: all
               capabilities: [gpu]
-    restart: unless-stopped
-
-  # ── Celery Worker (CPU tasks: Reconstruction, QA) ──
-  worker-general:
-    build:
-      context: .
-      dockerfile: Dockerfile.worker
-    command: celery -A workers.celery_app worker -Q general --loglevel=info --concurrency=2
-    volumes:
-      - ./data:/app/data
-      - ./backend:/app/backend
-    env_file:
-      - .env
-    environment:
-      - REDIS_URL=redis://redis:6379/0
-      - CELERY_BROKER_URL=redis://redis:6379/0
-      - CELERY_RESULT_BACKEND=redis://redis:6379/1
-    depends_on:
-      redis:
-        condition: service_healthy
     restart: unless-stopped
 
   # ── React Frontend ──
@@ -95,6 +35,3 @@ services:
     depends_on:
       - backend
     restart: unless-stopped
-
-volumes:
-  redis_data:
