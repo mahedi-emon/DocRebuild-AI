@@ -1,0 +1,30 @@
+FROM python:3.12-slim
+
+WORKDIR /app
+
+# System dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    tesseract-ocr \
+    tesseract-ocr-ben \
+    tesseract-ocr-eng \
+    poppler-utils \
+    libgl1-mesa-glx \
+    libglib2.0-0 \
+    libjpeg-dev \
+    libpng-dev \
+    default-jre-headless \
+    && rm -rf /var/lib/apt/lists/*
+
+# Python dependencies
+COPY backend/pyproject.toml .
+RUN pip install --no-cache-dir -e ".[dev]" 2>/dev/null || pip install --no-cache-dir .
+
+# Copy application code
+COPY backend/ .
+
+# Create data directories
+RUN mkdir -p data/uploads data/outputs data/temp data/models
+
+EXPOSE 8000
+
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
