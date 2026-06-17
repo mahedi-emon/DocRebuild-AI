@@ -18,11 +18,9 @@ frontend/build/
 .next/
 
 # Data
-data/uploads/
-data/outputs/
-data/temp/
-data/models/
-*.db
+backend/data/
+**/data/
+**/*.db
 
 # Environment
 .env
