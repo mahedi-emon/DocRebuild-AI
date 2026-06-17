@@ -112,6 +112,12 @@ export const api = {
     return res.json();
   },
 
+  getDocumentJobs: async (documentId: string): Promise<any[]> => {
+    const res = await fetch(`${API_BASE}/api/jobs/document/${documentId}`);
+    if (!res.ok) throw new Error('Failed to fetch jobs for document');
+    return res.json();
+  },
+
   cancelJob: async (jobId: string): Promise<void> => {
     const res = await fetch(`${API_BASE}/api/jobs/${jobId}/cancel`, {
       method: 'POST',

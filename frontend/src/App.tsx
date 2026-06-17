@@ -224,6 +224,35 @@ export default function App() {
     }
   };
 
+  const handleViewProcessing = async (doc: DocumentInfo) => {
+    setSelectedDoc(doc);
+    setLoading(true);
+    setError(null);
+    try {
+      const jobs = await api.getDocumentJobs(doc.id);
+      const activeJob = jobs.find((j: any) => j.status === 'pending' || j.status === 'running') || jobs[0];
+      if (activeJob) {
+        setActiveJobId(activeJob.id);
+        setJobProgress({
+          job_id: activeJob.id,
+          status: activeJob.status as any,
+          current_stage: activeJob.current_stage,
+          progress: activeJob.progress,
+          elapsed_seconds: 0,
+          estimated_remaining_seconds: 0,
+          stage_details: activeJob.stage_details,
+        });
+        setActivePage('processing');
+      } else {
+        setError('No active job found for this document.');
+      }
+    } catch (e: any) {
+      setError(e.message || 'Failed to fetch job progress');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const formatSize = (bytes: number) => {
     if (bytes === 0) return '0 B';
     const k = 1024;
@@ -451,7 +480,9 @@ export default function App() {
                               } else if (doc.status === 'uploaded') {
                                 setActivePage('upload');
                               } else if (doc.status === 'processing') {
-                                setActivePage('processing');
+                                handleViewProcessing(doc);
+                              } else if (doc.status === 'failed') {
+                                setError(doc.error_message || 'Document processing failed.');
                               }
                             }}
                           >
@@ -618,96 +649,106 @@ export default function App() {
           )}
 
           {/* PAGE: PIPELINE PROCESSING */}
-          {activePage === 'processing' && jobProgress && (
+          {activePage === 'processing' && (
             <div style={{ maxWidth: '800px', margin: '0 auto' }}>
-              <div className="glass-panel" style={{ padding: '32px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
-                  <div>
-                    <h3 style={{ fontFamily: 'var(--font-display)' }}>Running Reconstructor</h3>
-                    <p style={{ color: 'var(--text-muted)', fontSize: '13px', marginTop: '4px' }}>Job ID: {jobProgress.job_id}</p>
-                  </div>
-                  <button className="btn btn-secondary" style={{ borderColor: 'var(--error)', color: 'var(--error)' }} onClick={handleCancelJob}>
-                    Cancel Job
+              {!jobProgress ? (
+                <div className="glass-panel" style={{ padding: '48px', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px' }}>
+                  <RefreshCw size={48} className="animate-spin text-indigo-400" />
+                  <p style={{ fontWeight: 600, fontSize: '16px' }}>Loading pipeline status...</p>
+                  <button className="btn btn-secondary" onClick={() => setActivePage('dashboard')}>
+                    Back to Dashboard
                   </button>
                 </div>
+              ) : (
+                <div className="glass-panel" style={{ padding: '32px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+                    <div>
+                      <h3 style={{ fontFamily: 'var(--font-display)' }}>Running Reconstructor</h3>
+                      <p style={{ color: 'var(--text-muted)', fontSize: '13px', marginTop: '4px' }}>Job ID: {jobProgress.job_id}</p>
+                    </div>
+                    <button className="btn btn-secondary" style={{ borderColor: 'var(--error)', color: 'var(--error)' }} onClick={handleCancelJob}>
+                      Cancel Job
+                    </button>
+                  </div>
 
-                {/* Progress bar */}
-                <div style={{ marginBottom: '32px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', fontWeight: 600 }}>
-                    <span>Progress: {Math.round(jobProgress.progress)}%</span>
-                    <span>Stage: {jobProgress.current_stage || 'Queued'}</span>
+                  {/* Progress bar */}
+                  <div style={{ marginBottom: '32px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', fontWeight: 600 }}>
+                      <span>Progress: {Math.round(jobProgress.progress)}%</span>
+                      <span>Stage: {jobProgress.current_stage || 'Queued'}</span>
+                    </div>
+                    <div style={{ height: '8px', background: 'var(--secondary)', borderRadius: '4px', overflow: 'hidden' }}>
+                      <div 
+                        style={{ 
+                          height: '100%', 
+                          width: `${jobProgress.progress}%`, 
+                          background: 'linear-gradient(90deg, var(--primary) 0%, var(--accent) 100%)',
+                          boxShadow: '0 0 10px var(--primary-glow)',
+                          transition: 'width 0.3s ease'
+                        }}
+                      ></div>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '8px', fontSize: '12px', color: 'var(--text-muted)' }}>
+                      <span>Elapsed: {jobProgress.elapsed_seconds ? `${Math.round(jobProgress.elapsed_seconds)}s` : '0s'}</span>
+                      <span>Remaining: {jobProgress.estimated_remaining_seconds ? `${Math.round(jobProgress.estimated_remaining_seconds)}s` : 'Calculating...'}</span>
+                    </div>
                   </div>
-                  <div style={{ height: '8px', background: 'var(--secondary)', borderRadius: '4px', overflow: 'hidden' }}>
-                    <div 
-                      style={{ 
-                        height: '100%', 
-                        width: `${jobProgress.progress}%`, 
-                        background: 'linear-gradient(90deg, var(--primary) 0%, var(--accent) 100%)',
-                        boxShadow: '0 0 10px var(--primary-glow)',
-                        transition: 'width 0.3s ease'
-                      }}
-                    ></div>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '8px', fontSize: '12px', color: 'var(--text-muted)' }}>
-                    <span>Elapsed: {jobProgress.elapsed_seconds ? `${Math.round(jobProgress.elapsed_seconds)}s` : '0s'}</span>
-                    <span>Remaining: {jobProgress.estimated_remaining_seconds ? `${Math.round(jobProgress.estimated_remaining_seconds)}s` : 'Calculating...'}</span>
+
+                  {/* Stages representation */}
+                  <div className="pipeline-flow">
+                    {[
+                      { key: 'pdf_ingestion', label: 'PDF Ingestion & DPI Rendering' },
+                      { key: 'layout_analysis', label: 'Layout Element Detection' },
+                      { key: 'ocr_ensemble', label: 'OCR Ensemble Recognition' },
+                      { key: 'document_understanding', label: 'Semantic Document Analysis' },
+                      { key: 'vision_validation', label: 'Vision Model Validation' },
+                      { key: 'table_extraction', label: 'Table Structure Extraction' },
+                      { key: 'math_recognition', label: 'Math/Equation Recognition' },
+                      { key: 'bangla_validation', label: 'Bangla Dictionary Validation' },
+                      { key: 'docx_reconstruction', label: 'DOCX Document Assembly' },
+                      { key: 'quality_assurance', label: 'Quality Assurance Scoring' },
+                      { key: 'self_correction', label: 'Self-Correction Passes' },
+                      { key: 'visual_verification', label: 'Visual Layout Verification' }
+                    ].map((stage, idx) => {
+                      const detail = jobProgress.stage_details?.[stage.key];
+                      const isActive = jobProgress.current_stage === stage.key;
+                      const isCompleted = detail?.status === 'completed';
+                      const isFailed = detail?.status === 'failed';
+                      
+                      let statusLabel = 'Pending';
+                      let statusIcon = <Clock size={16} className="text-gray-600" />;
+                      let className = 'pipeline-stage';
+
+                      if (isActive && !isCompleted) {
+                        statusLabel = 'Running';
+                        statusIcon = <RefreshCw size={16} className="animate-spin text-indigo-400" />;
+                        className += ' active';
+                      } else if (isCompleted) {
+                        statusLabel = 'Completed';
+                        statusIcon = <CheckCircle2 size={16} className="text-emerald-400" />;
+                        className += ' completed';
+                      } else if (isFailed) {
+                        statusLabel = 'Failed';
+                        statusIcon = <AlertCircle size={16} className="text-red-500" />;
+                        className += ' failed';
+                      }
+
+                      return (
+                        <div key={stage.key} className={className}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                            <span style={{ color: 'var(--text-dark)', fontWeight: 700, minWidth: '24px' }}>0{idx+1}</span>
+                            <span style={{ fontWeight: isActive ? 600 : 400 }}>{stage.label}</span>
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px' }}>
+                            {statusIcon}
+                            <span style={{ color: isActive ? 'var(--primary)' : isCompleted ? 'var(--success)' : 'var(--text-muted)' }}>{statusLabel}</span>
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
-
-                {/* Stages representation */}
-                <div className="pipeline-flow">
-                  {[
-                    { key: 'pdf_ingestion', label: 'PDF Ingestion & DPI Rendering' },
-                    { key: 'layout_analysis', label: 'Layout Element Detection' },
-                    { key: 'ocr_ensemble', label: 'OCR Ensemble Recognition' },
-                    { key: 'document_understanding', label: 'Semantic Document Analysis' },
-                    { key: 'vision_validation', label: 'Vision Model Validation' },
-                    { key: 'table_extraction', label: 'Table Structure Extraction' },
-                    { key: 'math_recognition', label: 'Math/Equation Recognition' },
-                    { key: 'bangla_validation', label: 'Bangla Dictionary Validation' },
-                    { key: 'docx_reconstruction', label: 'DOCX Document Assembly' },
-                    { key: 'quality_assurance', label: 'Quality Assurance Scoring' },
-                    { key: 'self_correction', label: 'Self-Correction Passes' },
-                    { key: 'visual_verification', label: 'Visual Layout Verification' }
-                  ].map((stage, idx) => {
-                    const detail = jobProgress.stage_details?.[stage.key];
-                    const isActive = jobProgress.current_stage === stage.key;
-                    const isCompleted = detail?.status === 'completed';
-                    const isFailed = detail?.status === 'failed';
-                    
-                    let statusLabel = 'Pending';
-                    let statusIcon = <Clock size={16} className="text-gray-600" />;
-                    let className = 'pipeline-stage';
-
-                    if (isActive && !isCompleted) {
-                      statusLabel = 'Running';
-                      statusIcon = <RefreshCw size={16} className="animate-spin text-indigo-400" />;
-                      className += ' active';
-                    } else if (isCompleted) {
-                      statusLabel = 'Completed';
-                      statusIcon = <CheckCircle2 size={16} className="text-emerald-400" />;
-                      className += ' completed';
-                    } else if (isFailed) {
-                      statusLabel = 'Failed';
-                      statusIcon = <AlertCircle size={16} className="text-red-500" />;
-                      className += ' failed';
-                    }
-
-                    return (
-                      <div key={stage.key} className={className}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                          <span style={{ color: 'var(--text-dark)', fontWeight: 700, minWidth: '24px' }}>0{idx+1}</span>
-                          <span style={{ fontWeight: isActive ? 600 : 400 }}>{stage.label}</span>
-                        </div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px' }}>
-                          {statusIcon}
-                          <span style={{ color: isActive ? 'var(--primary)' : isCompleted ? 'var(--success)' : 'var(--text-muted)' }}>{statusLabel}</span>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
+              )}
             </div>
           )}
 
