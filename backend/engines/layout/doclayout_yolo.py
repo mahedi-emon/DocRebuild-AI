@@ -44,10 +44,10 @@ class DocLayoutYOLOEngine:
         if self._initialized:
             return
         try:
-            from doclayout_yolo import YOLO
+            from doclayout_yolo import YOLOv10
 
             if self._model_path:
-                self._model = YOLO(self._model_path)
+                self._model = YOLOv10(self._model_path)
             else:
                 # Use default pre-trained model
                 from huggingface_hub import hf_hub_download
@@ -56,7 +56,7 @@ class DocLayoutYOLOEngine:
                     repo_id="juliozhao/DocLayout-YOLO-DocStructBench",
                     filename="doclayout_yolo_docstructbench_imgsz1024.pt",
                 )
-                self._model = YOLO(model_path)
+                self._model = YOLOv10(model_path)
 
             self._initialized = True
             logger.info("DocLayout-YOLO initialized")

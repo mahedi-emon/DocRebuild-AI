@@ -119,7 +119,8 @@ export const api = {
     const res = await fetch(`${API_BASE}/api/reports/${documentId}`);
     if (!res.ok) throw new Error('Failed to fetch QA report');
     // Reports API returns a list of reports, find the 'qa' type
-    const reports = await res.json();
+    const data = await res.json();
+    const reports = data.reports || [];
     const qaReport = reports.find((r: any) => r.report_type === 'qa');
     if (!qaReport) throw new Error('QA Report not found');
     return qaReport.data;

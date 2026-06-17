@@ -96,6 +96,19 @@ class OCREnsemble:
         """
         results = {}
 
+        # Filter engines: if Bangla is requested, only run engines that support Bangla
+        engines_to_run = self._engines
+        if languages:
+            if "bn" in languages:
+                engines_to_run = [e for e in self._engines if "bn" in e.supported_languages]
+                logger.info(f"Page contains Bangla; running only Bangla-capable engines: {[e.name for e in engines_to_run]}")
+            else:
+                engines_to_run = [e for e in self._engines if any(lang in e.supported_languages for lang in languages)]
+
+        if not engines_to_run:
+            logger.warning("No OCR engines match the requested languages. Using all registered engines as fallback.")
+            engines_to_run = self._engines
+
         def _run_engine(engine: BaseOCREngine) -> tuple[str, OCRResult | None]:
             try:
                 result = engine.recognize(image, languages)
@@ -107,7 +120,7 @@ class OCREnsemble:
         with ThreadPoolExecutor(max_workers=self._max_workers) as executor:
             futures = {
                 executor.submit(_run_engine, engine): engine
-                for engine in self._engines
+                for engine in engines_to_run
             }
             for future in as_completed(futures):
                 name, result = future.result()

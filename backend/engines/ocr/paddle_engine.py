@@ -8,9 +8,12 @@ Supports Bangla ('bn') and English ('en') with angle classification.
 from __future__ import annotations
 
 import time
+import logging
 import numpy as np
 
 from engines.ocr.base_ocr import BaseOCREngine, OCRResult, OCRLine, OCRWord
+
+logger = logging.getLogger(__name__)
 
 
 class PaddleOCREngine(BaseOCREngine):
@@ -27,7 +30,7 @@ class PaddleOCREngine(BaseOCREngine):
 
     @property
     def supported_languages(self) -> list[str]:
-        return ["en", "bn"]
+        return ["en"]
 
     def initialize(self) -> None:
         if self._initialized:
@@ -94,20 +97,43 @@ class PaddleOCREngine(BaseOCREngine):
                     ys = [p[1] for p in bbox_points]
                     bbox = (min(xs), min(ys), max(xs), max(ys))
 
-                    # Split into words
+                    # Split into words and estimate word-level bounding boxes
                     words_in_line = []
                     text_words = text.split()
-                    for wi, word_text in enumerate(text_words):
-                        word = OCRWord(
-                            text=word_text,
-                            bbox=bbox,
-                            confidence=confidence,
-                            engine=self.name,
-                            line_id=line_id,
-                            word_index=wi,
-                        )
-                        words_in_line.append(word)
-                        all_words.append(word)
+                    if len(text_words) > 1:
+                        x1, y1, x2, y2 = bbox
+                        total_chars = sum(len(w) for w in text_words)
+                        current_x = x1
+                        line_width = x2 - x1
+                        
+                        for wi, word_text in enumerate(text_words):
+                            word_len = len(word_text)
+                            word_width = line_width * (word_len / total_chars)
+                            word_bbox = (current_x, y1, current_x + word_width, y2)
+                            current_x += word_width
+                            
+                            word = OCRWord(
+                                text=word_text,
+                                bbox=word_bbox,
+                                confidence=confidence,
+                                engine=self.name,
+                                line_id=line_id,
+                                word_index=wi,
+                            )
+                            words_in_line.append(word)
+                            all_words.append(word)
+                    else:
+                        for wi, word_text in enumerate(text_words):
+                            word = OCRWord(
+                                text=word_text,
+                                bbox=bbox,
+                                confidence=confidence,
+                                engine=self.name,
+                                line_id=line_id,
+                                word_index=wi,
+                            )
+                            words_in_line.append(word)
+                            all_words.append(word)
 
                     line = OCRLine(
                         words=words_in_line,

@@ -26,7 +26,7 @@ class DocTREngine(BaseOCREngine):
 
     @property
     def supported_languages(self) -> list[str]:
-        return ["en", "bn"]
+        return ["en"]
 
     def initialize(self) -> None:
         if self._initialized:
