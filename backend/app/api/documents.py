@@ -174,13 +174,13 @@ async def delete_document(
     if not document:
         raise HTTPException(status_code=404, detail="Document not found")
 
-    # Remove files from disk
+    # Remove files from disk (ignoring errors to prevent Windows file locks from blocking DB deletion)
     doc_upload_dir = settings.upload_dir / document_id
     if doc_upload_dir.exists():
-        shutil.rmtree(doc_upload_dir)
+        shutil.rmtree(doc_upload_dir, ignore_errors=True)
 
     doc_output_dir = settings.output_dir / document_id
     if doc_output_dir.exists():
-        shutil.rmtree(doc_output_dir)
+        shutil.rmtree(doc_output_dir, ignore_errors=True)
 
     await db.delete(document)

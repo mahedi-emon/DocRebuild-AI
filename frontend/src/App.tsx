@@ -473,7 +473,12 @@ export default function App() {
                           <tr 
                             key={doc.id}
                             style={{ cursor: 'pointer' }}
-                            onClick={() => {
+                            onClick={(e) => {
+                              // Prevent navigation when clicking actions (buttons, links, SVGs inside them)
+                              const target = e.target as HTMLElement;
+                              if (target.closest('button') || target.closest('a') || target.closest('.btn')) {
+                                return;
+                              }
                               setSelectedDoc(doc);
                               if (doc.status === 'completed') {
                                 handleViewResults(doc);
