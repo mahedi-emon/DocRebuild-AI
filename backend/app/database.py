@@ -45,9 +45,33 @@ class Base(DeclarativeBase):
 
 
 async def init_db() -> None:
-    """Create all tables (called on app startup)."""
+    """Create all tables (called on app startup) and apply migrations."""
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        # Apply column migrations for existing databases
+        await conn.run_sync(_migrate_columns)
+
+
+def _migrate_columns(connection) -> None:
+    """Add missing columns to existing tables (lightweight migration)."""
+    import logging
+    logger = logging.getLogger(__name__)
+
+    # Check and add understanding_json column to documents table
+    try:
+        result = connection.execute(
+            __import__("sqlalchemy").text("PRAGMA table_info(documents)")
+        )
+        columns = {row[1] for row in result}
+        if "understanding_json" not in columns:
+            connection.execute(
+                __import__("sqlalchemy").text(
+                    "ALTER TABLE documents ADD COLUMN understanding_json TEXT"
+                )
+            )
+            logger.info("Migration: Added 'understanding_json' column to documents table")
+    except Exception as e:
+        logger.warning(f"Migration check failed (may be OK on first run): {e}")
 
 
 async def get_db() -> AsyncSession:

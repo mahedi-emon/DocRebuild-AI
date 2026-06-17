@@ -121,20 +121,43 @@ class SuryaOCREngine(BaseOCREngine):
 
                 confidence = getattr(text_line, 'confidence', 0.85)
 
-                # Split into words
+                # Split into words with estimated per-word bounding boxes
                 words_in_line = []
                 text_words = text.split()
-                for wi, word_text in enumerate(text_words):
-                    word = OCRWord(
-                        text=word_text,
-                        bbox=bbox,
-                        confidence=confidence,
-                        engine=self.name,
-                        line_id=line_id,
-                        word_index=wi,
-                    )
-                    words_in_line.append(word)
-                    all_words.append(word)
+                if len(text_words) > 1:
+                    x1, y1, x2, y2 = bbox
+                    total_chars = max(sum(len(w) for w in text_words), 1)
+                    line_width = x2 - x1
+                    current_x = x1
+
+                    for wi, word_text in enumerate(text_words):
+                        word_len = len(word_text)
+                        word_width = line_width * (word_len / total_chars)
+                        word_bbox = (current_x, y1, current_x + word_width, y2)
+                        current_x += word_width
+
+                        word = OCRWord(
+                            text=word_text,
+                            bbox=word_bbox,
+                            confidence=confidence,
+                            engine=self.name,
+                            line_id=line_id,
+                            word_index=wi,
+                        )
+                        words_in_line.append(word)
+                        all_words.append(word)
+                else:
+                    for wi, word_text in enumerate(text_words):
+                        word = OCRWord(
+                            text=word_text,
+                            bbox=bbox,
+                            confidence=confidence,
+                            engine=self.name,
+                            line_id=line_id,
+                            word_index=wi,
+                        )
+                        words_in_line.append(word)
+                        all_words.append(word)
 
                 if words_in_line:
                     line = OCRLine(

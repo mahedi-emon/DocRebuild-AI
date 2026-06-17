@@ -33,6 +33,9 @@ class Document(Base):
     output_path: Mapped[str | None] = mapped_column(String(1000), nullable=True)
     overall_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    understanding_json: Mapped[dict | None] = mapped_column(
+        nullable=True, type_=Text, default=None
+    )  # Stores Docling/Marker markdown text for high-quality reconstruction
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)

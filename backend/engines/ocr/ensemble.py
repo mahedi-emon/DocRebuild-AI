@@ -32,12 +32,15 @@ settings = get_settings()
 # Default engine weights (tuned for Bangla/English textbooks)
 DEFAULT_WEIGHTS = {
     "surya": 1.0,
-    "paddleocr": 0.9,
+    "paddleocr": 0.7,
     "tesseract": 0.6,
-    "easyocr": 0.8,
-    "trocr": 0.85,
-    "doctr": 0.85,
+    "easyocr": 0.85,
+    "trocr": 0.5,
+    "doctr": 0.5,
 }
+
+# Engines that genuinely support Bangla
+BANGLA_CAPABLE_ENGINES = {"surya", "tesseract", "easyocr"}
 
 
 class OCREnsemble:
@@ -56,7 +59,7 @@ class OCREnsemble:
         engines: list[BaseOCREngine] | None = None,
         weights: dict[str, float] | None = None,
         min_engines: int = 3,
-        iou_threshold: float = 0.3,
+        iou_threshold: float = 0.4,
         confidence_threshold: float = 0.7,
         max_workers: int = 4,
     ):
@@ -141,6 +144,9 @@ class OCREnsemble:
         2. Build spatial clusters by matching words with overlapping bboxes
         3. For each cluster, select the best word using weighted voting
         4. Reconstruct lines from selected words
+
+        For Bangla-dominant pages with few engines, falls back to line-level
+        fusion which produces much better results than word-level alignment.
         """
         if not engine_results:
             return OCRResult(engine="ensemble")
@@ -153,6 +159,100 @@ class OCREnsemble:
 
         start_time = time.time()
 
+        # Check if this is a Bangla-dominant page
+        is_bangla_page = all(
+            name in BANGLA_CAPABLE_ENGINES for name in engine_results
+        )
+
+        if is_bangla_page:
+            # Use line-level fusion for Bangla pages — more reliable
+            fused_result = self._fuse_line_level(engine_results)
+        else:
+            fused_result = self._fuse_word_level(engine_results)
+
+        elapsed = (time.time() - start_time) * 1000
+        total_engine_time = sum(r.processing_time_ms for r in engine_results.values())
+        fused_result.processing_time_ms = elapsed + total_engine_time
+        return fused_result
+
+    def _fuse_line_level(self, engine_results: dict[str, OCRResult]) -> OCRResult:
+        """
+        Line-level fusion: align entire lines by y-coordinate overlap,
+        then pick the best line text from the highest-weighted engine.
+        Much more reliable for Bangla than word-level IoU matching.
+        """
+        # Collect all lines from all engines with their weights
+        all_engine_lines: list[tuple[OCRLine, str, float]] = []
+        for engine_name, result in engine_results.items():
+            weight = self._weights.get(engine_name, 0.5)
+            for line in result.lines:
+                all_engine_lines.append((line, engine_name, weight))
+
+        if not all_engine_lines:
+            return OCRResult(engine="ensemble")
+
+        # Cluster lines by vertical overlap
+        line_clusters: list[list[tuple[OCRLine, str, float]]] = []
+        used = set()
+
+        for i, (line_i, eng_i, w_i) in enumerate(all_engine_lines):
+            if i in used:
+                continue
+            cluster = [(line_i, eng_i, w_i)]
+            used.add(i)
+            y_center_i = (line_i.bbox[1] + line_i.bbox[3]) / 2
+            height_i = max(line_i.bbox[3] - line_i.bbox[1], 10)
+
+            for j, (line_j, eng_j, w_j) in enumerate(all_engine_lines):
+                if j in used or eng_j == eng_i:
+                    continue
+                y_center_j = (line_j.bbox[1] + line_j.bbox[3]) / 2
+                if abs(y_center_i - y_center_j) < height_i * 0.7:
+                    cluster.append((line_j, eng_j, w_j))
+                    used.add(j)
+
+            line_clusters.append(cluster)
+
+        # For each cluster, pick the best line
+        fused_lines = []
+        fused_words = []
+        line_id = 0
+
+        for cluster in sorted(line_clusters, key=lambda c: c[0][0].bbox[1]):
+            # Score each line: weight * confidence * text_length_bonus
+            best_line = None
+            best_score = -1.0
+
+            for line, eng_name, weight in cluster:
+                text_len_bonus = min(len(line.text) / 10.0, 2.0) if line.text else 0
+                score = weight * line.confidence * (1 + text_len_bonus)
+                if score > best_score:
+                    best_score = score
+                    best_line = line
+
+            if best_line and best_line.text.strip():
+                # Update line/word IDs
+                best_line.line_id = line_id
+                for wi, word in enumerate(best_line.words):
+                    word.line_id = line_id
+                    word.word_index = wi
+                    word.engine = "ensemble"
+                    fused_words.append(word)
+                best_line.confidence = best_score / max(len(cluster), 1)
+                fused_lines.append(best_line)
+                line_id += 1
+
+        result = OCRResult(
+            lines=fused_lines,
+            words=fused_words,
+            engine="ensemble",
+        )
+        result.compute_full_text()
+        result.compute_overall_confidence()
+        return result
+
+    def _fuse_word_level(self, engine_results: dict[str, OCRResult]) -> OCRResult:
+        """Original word-level fusion using IoU-based spatial clustering."""
         # Step 1: Collect all words with their engine weights
         all_candidates: list[tuple[OCRWord, float]] = []
         for engine_name, result in engine_results.items():
@@ -173,16 +273,10 @@ class OCREnsemble:
         # Step 4: Reconstruct lines from fused words
         lines = self._reconstruct_lines(fused_words)
 
-        elapsed = (time.time() - start_time) * 1000
-
-        # Aggregate per-engine timing
-        total_engine_time = sum(r.processing_time_ms for r in engine_results.values())
-
         result = OCRResult(
             lines=lines,
             words=fused_words,
             engine="ensemble",
-            processing_time_ms=elapsed + total_engine_time,
         )
         result.compute_full_text()
         result.compute_overall_confidence()

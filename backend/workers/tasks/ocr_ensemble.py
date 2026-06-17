@@ -2,6 +2,8 @@
 OCR Ensemble Task — Stage 3
 
 Runs the multi-OCR ensemble on all pages of a document.
+Includes image pre-processing (contrast enhancement, denoising)
+for improved OCR accuracy on scanned documents.
 """
 
 from __future__ import annotations
@@ -58,8 +60,11 @@ def run_ocr_ensemble(document_id: str, job_id: str, options: dict | None = None)
             # Load page image
             image = np.array(Image.open(page.image_path).convert("RGB"))
 
-            # Run ensemble
-            result = ensemble.recognize(image, languages=["bn", "en"])
+            # Pre-process image for better OCR accuracy
+            processed_image = _preprocess_image(image)
+
+            # Run ensemble on pre-processed image
+            result = ensemble.recognize(processed_image, languages=["bn", "en"])
 
             # Store results
             page.ocr_json = result.to_dict()
@@ -76,6 +81,7 @@ def run_ocr_ensemble(document_id: str, job_id: str, options: dict | None = None)
             db.commit()
             logger.info(
                 f"Page {page.page_number}: {len(result.words)} words, "
+                f"{len(result.lines)} lines, "
                 f"confidence={result.overall_confidence:.3f}"
             )
 
@@ -93,3 +99,22 @@ def run_ocr_ensemble(document_id: str, job_id: str, options: dict | None = None)
         raise
     finally:
         db.close()
+
+
+def _preprocess_image(image: np.ndarray) -> np.ndarray:
+    """
+    Pre-process image for better OCR accuracy.
+    Uses contrast enhancement and denoising while preserving color
+    for engines that benefit from it.
+    """
+    try:
+        from app.utils.image_utils import preprocess_for_ocr
+        processed = preprocess_for_ocr(image)
+        logger.debug("Image pre-processed with contrast enhancement and denoising")
+        return processed
+    except ImportError:
+        logger.warning("Could not import image pre-processing utilities, using raw image")
+        return image
+    except Exception as e:
+        logger.warning(f"Image pre-processing failed, using raw image: {e}")
+        return image
