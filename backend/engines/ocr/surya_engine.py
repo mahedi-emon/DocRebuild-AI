@@ -39,19 +39,19 @@ class SuryaOCREngine(BaseOCREngine):
         if self._initialized:
             return
         try:
-            # Surya v0.17.x API
-            from surya.model.recognition.model import load_model as load_rec_model
-            from surya.model.recognition.processor import load_processor as load_rec_processor
-            from surya.model.detection.segformer import load_model as load_det_model
-            from surya.model.detection.segformer import load_processor as load_det_processor
+            # Import new object-oriented predictor classes
+            from surya.foundation import FoundationPredictor
+            from surya.detection import DetectionPredictor
+            from surya.recognition import RecognitionPredictor
 
-            logger.info("Loading Surya detection model...")
-            self._det_model = load_det_model()
-            self._det_processor = load_det_processor()
+            logger.info("Loading Surya foundation predictor...")
+            self._foundation_predictor = FoundationPredictor()
 
-            logger.info("Loading Surya recognition model...")
-            self._rec_model = load_rec_model()
-            self._rec_processor = load_rec_processor()
+            logger.info("Loading Surya detection predictor...")
+            self._det_predictor = DetectionPredictor()
+
+            logger.info("Loading Surya recognition predictor...")
+            self._rec_predictor = RecognitionPredictor(self._foundation_predictor)
 
             self._initialized = True
             logger.info("Surya OCR v0.17.x initialized successfully")
@@ -66,32 +66,17 @@ class SuryaOCREngine(BaseOCREngine):
         self.initialize()
         start_time = time.time()
 
-        from surya.detection import batch_text_detection
-        from surya.recognition import batch_recognition
-
         # Convert numpy array to PIL Image
         pil_image = Image.fromarray(image)
 
-        # Step 1: Detect text lines
-        det_predictions = batch_text_detection(
-            [pil_image],
-            self._det_model,
-            self._det_processor,
-        )
-
         # Map language codes for Surya
         lang_list = languages or ["en", "bn"]
-        surya_langs = []
-        for lang in lang_list:
-            surya_langs.append(lang)
 
-        # Step 2: Recognize text in detected lines
-        rec_predictions = batch_recognition(
+        # Run detection and recognition using the new predictor API
+        rec_predictions = self._rec_predictor(
             [pil_image],
-            [surya_langs],
-            self._rec_model,
-            self._rec_processor,
-            bboxes=[det_predictions[0]],
+            task_names=["ocr_with_boxes"],
+            det_predictor=self._det_predictor,
         )
 
         lines = []
@@ -186,9 +171,8 @@ class SuryaOCREngine(BaseOCREngine):
 
     def cleanup(self) -> None:
         import gc
-        self._rec_model = None
-        self._rec_processor = None
-        self._det_model = None
-        self._det_processor = None
+        self._foundation_predictor = None
+        self._rec_predictor = None
+        self._det_predictor = None
         self._initialized = False
         gc.collect()
