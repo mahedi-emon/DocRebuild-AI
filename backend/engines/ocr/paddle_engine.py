@@ -20,8 +20,7 @@ class PaddleOCREngine(BaseOCREngine):
     """PaddleOCR 3.x engine with angle classification."""
 
     def __init__(self):
-        self._ocr_en = None
-        self._ocr_bn = None
+        self._ocr = None
         self._initialized = False
 
     @property
@@ -39,23 +38,15 @@ class PaddleOCREngine(BaseOCREngine):
             from paddleocr import PaddleOCR
 
             try:
-                self._ocr_en = PaddleOCR(
+                self._ocr = PaddleOCR(
                     use_angle_cls=True,
                     lang="en",
                     show_log=False,
                     use_gpu=self._check_gpu(),
                 )
-                # Bengali language support
-                self._ocr_bn = PaddleOCR(
-                    use_angle_cls=True,
-                    lang="en",  # PaddleOCR uses 'en' for Latin; Bangla via custom model
-                    show_log=False,
-                    use_gpu=self._check_gpu(),
-                )
             except (TypeError, Exception) as e:
                 logger.warning(f"Failed to initialize PaddleOCR with standard arguments, falling back: {e}")
-                self._ocr_en = PaddleOCR(lang="en")
-                self._ocr_bn = PaddleOCR(lang="en")
+                self._ocr = PaddleOCR(lang="en")
             self._initialized = True
         except ImportError:
             raise ImportError(
@@ -73,7 +64,7 @@ class PaddleOCREngine(BaseOCREngine):
         self.initialize()
         start_time = time.time()
 
-        ocr_engine = self._ocr_en
+        ocr_engine = self._ocr
         result_raw = ocr_engine.ocr(image, cls=True)
 
         lines = []
@@ -158,6 +149,5 @@ class PaddleOCREngine(BaseOCREngine):
         return result
 
     def cleanup(self) -> None:
-        self._ocr_en = None
-        self._ocr_bn = None
+        self._ocr = None
         self._initialized = False

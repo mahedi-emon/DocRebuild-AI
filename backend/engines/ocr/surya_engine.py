@@ -176,3 +176,9 @@ class SuryaOCREngine(BaseOCREngine):
         self._det_predictor = None
         self._initialized = False
         gc.collect()
+        try:
+            import torch
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        except ImportError:
+            pass

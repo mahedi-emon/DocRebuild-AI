@@ -21,10 +21,11 @@ settings = get_settings()
 
 
 def run_ocr_ensemble(document_id: str, job_id: str, options: dict | None = None) -> dict:
-    """Run OCR ensemble on all pages of a document."""
+    """Run OCR ensemble on all pages of a document sequentially, engine-by-engine."""
     from workers.tasks.orchestrator import get_sync_db, update_job_stage
     from app.models.job import PipelineStage
     from engines.ocr.ensemble import create_ensemble
+    import gc
 
     db = get_sync_db()
     options = options or {}
@@ -40,33 +41,87 @@ def run_ocr_ensemble(document_id: str, job_id: str, options: dict | None = None)
         if not pages:
             raise ValueError(f"No pages found for document {document_id}")
 
-        # Create and initialize ensemble
+        # Create ensemble wrapper
         ensemble = create_ensemble()
-        initialized = ensemble.initialize_engines()
-        logger.info(f"Initialized {len(initialized)} OCR engines: {initialized}")
+        
+        # Results accumulator: page.page_number -> {engine_name: OCRResult}
+        results_by_page = {page.page_number: {} for page in pages}
+        
+        # Filter engines that will actually run based on requested languages (default 'bn' and 'en')
+        languages = ["bn", "en"]
+        engines_to_run = []
+        for engine in ensemble._engines:
+            if languages:
+                if "bn" in languages:
+                    if "bn" in engine.supported_languages:
+                        engines_to_run.append(engine)
+                else:
+                    if any(lang in engine.supported_languages for lang in languages):
+                        engines_to_run.append(engine)
+            else:
+                engines_to_run.append(engine)
 
+        if not engines_to_run:
+            logger.warning("No OCR engines match the requested languages. Using all registered engines as fallback.")
+            engines_to_run = ensemble._engines
+
+        total_engines = len(engines_to_run)
         total_pages = len(pages)
+        # Total steps: (number of engines * number of pages) + number of pages for fusion
+        total_steps = (total_engines * total_pages) + total_pages
+        step_count = 0
+
+        logger.info(f"Starting sequential OCR run with {total_engines} engines: {[e.name for e in engines_to_run]}")
+
+        for engine_idx, engine in enumerate(engines_to_run):
+            try:
+                # Initialize the engine (loads model weights into RAM)
+                logger.info(f"Loading/initializing OCR engine: {engine.name}")
+                engine.initialize()
+                
+                for idx, page in enumerate(pages):
+                    # Update progress
+                    progress = (step_count / total_steps) * 100
+                    update_job_stage(db, job_id, PipelineStage.OCR_ENSEMBLE, progress)
+                    step_count += 1
+
+                    if not page.image_path:
+                        logger.warning(f"Page {page.page_number} has no image, skipping OCR")
+                        continue
+
+                    # Load and preprocess image on the fly
+                    image = np.array(Image.open(page.image_path).convert("RGB"))
+                    processed_image = _preprocess_image(image)
+
+                    # Run recognition on pre-processed image
+                    logger.info(f"Running engine '{engine.name}' on page {page.page_number}...")
+                    result = engine.recognize(processed_image, languages=languages)
+                    results_by_page[page.page_number][engine.name] = result
+
+            except Exception as e:
+                logger.error(f"Engine {engine.name} failed during sequential document run: {e}")
+            finally:
+                # Always cleanup/unload the model immediately to free memory
+                logger.info(f"Unloading/cleaning up OCR engine: {engine.name}")
+                engine.cleanup()
+                gc.collect()
+
+        # Step 2: Fuse results page-by-page
         results_summary = []
-
         for idx, page in enumerate(pages):
-            # Update progress
-            progress = (idx / total_pages) * 100
+            progress = (step_count / total_steps) * 100
             update_job_stage(db, job_id, PipelineStage.OCR_ENSEMBLE, progress)
+            step_count += 1
 
-            if not page.image_path:
-                logger.warning(f"Page {page.page_number} has no image, skipping OCR")
+            page_results = results_by_page[page.page_number]
+            if not page_results:
+                logger.warning(f"Page {page.page_number} has no OCR results, skipping fusion")
                 continue
 
-            # Load page image
-            image = np.array(Image.open(page.image_path).convert("RGB"))
+            # Fuse results from all engines for this page
+            result = ensemble.fuse_results(page_results)
 
-            # Pre-process image for better OCR accuracy
-            processed_image = _preprocess_image(image)
-
-            # Run ensemble on pre-processed image
-            result = ensemble.recognize(processed_image, languages=["bn", "en"])
-
-            # Store results
+            # Store results in DB
             page.ocr_json = result.to_dict()
             page.ocr_confidence = result.overall_confidence
 
@@ -80,13 +135,10 @@ def run_ocr_ensemble(document_id: str, job_id: str, options: dict | None = None)
 
             db.commit()
             logger.info(
-                f"Page {page.page_number}: {len(result.words)} words, "
+                f"Fused Page {page.page_number}: {len(result.words)} words, "
                 f"{len(result.lines)} lines, "
                 f"confidence={result.overall_confidence:.3f}"
             )
-
-        # Cleanup
-        ensemble.cleanup_all()
 
         return {
             "status": "success",
