@@ -50,6 +50,34 @@ async def init_db() -> None:
         await conn.run_sync(Base.metadata.create_all)
         # Apply column migrations for existing databases
         await conn.run_sync(_migrate_columns)
+        # Clean up stale running jobs/documents from previous crashes
+        await conn.run_sync(_cleanup_stale_records)
+
+
+def _cleanup_stale_records(connection) -> None:
+    """Reset jobs and documents that were left in running/processing state due to a crash."""
+    import logging
+    logger = logging.getLogger(__name__)
+    try:
+        # Update jobs
+        res_jobs = connection.execute(
+            __import__("sqlalchemy").text(
+                "UPDATE jobs SET status = 'failed', error_message = 'Job interrupted due to server restart' WHERE status = 'running'"
+            )
+        )
+        # Update documents
+        res_docs = connection.execute(
+            __import__("sqlalchemy").text(
+                "UPDATE documents SET status = 'failed', error_message = 'Processing interrupted due to server restart' WHERE status = 'processing'"
+            )
+        )
+        if res_jobs.rowcount > 0 or res_docs.rowcount > 0:
+            logger.info(
+                f"Cleaned up stale jobs ({res_jobs.rowcount} updated) and "
+                f"documents ({res_docs.rowcount} updated) on startup."
+            )
+    except Exception as e:
+        logger.warning(f"Failed to cleanup stale records on startup: {e}")
 
 
 def _migrate_columns(connection) -> None:
