@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { 
   FileText, 
   UploadCloud, 
@@ -18,7 +18,7 @@ import {
   Layers,
   Database
 } from 'lucide-react';
-import { api, connectJobProgressWS } from './lib/api';
+import { api, connectJobProgressWS, getErrorMessage } from './lib/api';
 import type { DocumentInfo, JobProgress, QAReport } from './lib/api';
 
 type PageType = 'dashboard' | 'upload' | 'processing' | 'results' | 'reports' | 'settings';
@@ -28,6 +28,7 @@ export default function App() {
   const [documents, setDocuments] = useState<DocumentInfo[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [serverConnected, setServerConnected] = useState(false);
   
   // Selection States
   const [selectedDoc, setSelectedDoc] = useState<DocumentInfo | null>(null);
@@ -57,26 +58,43 @@ export default function App() {
   const [device, setDevice] = useState<'cpu' | 'cuda'>('cpu');
 
   const wsRef = useRef<WebSocket | null>(null);
+  const selectedDocRef = useRef<DocumentInfo | null>(null);
 
-  // Fetch initial documents list
-  const loadDocs = async () => {
+  const refreshServerHealth = useCallback(async () => {
+    setServerConnected(await api.health());
+  }, []);
+
+  const loadDocs = useCallback(async () => {
     setLoading(true);
     try {
       const res = await api.getDocuments(1, 50);
       setDocuments(res.documents);
-    } catch (e: any) {
-      setError(e.message || 'Failed to load documents');
+      setServerConnected(true);
+    } catch (error: unknown) {
+      setServerConnected(false);
+      setError(getErrorMessage(error, 'Failed to load documents'));
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
-    loadDocs();
+    selectedDocRef.current = selectedDoc;
+  }, [selectedDoc]);
+
+  useEffect(() => {
+    queueMicrotask(() => {
+      void refreshServerHealth();
+      void loadDocs();
+    });
+    const healthTimer = window.setInterval(() => {
+      void refreshServerHealth();
+    }, 10000);
     return () => {
+      window.clearInterval(healthTimer);
       if (wsRef.current) wsRef.current.close();
     };
-  }, []);
+  }, [loadDocs, refreshServerHealth]);
 
   // Listen to WebSocket when a job is active
   useEffect(() => {
@@ -86,19 +104,19 @@ export default function App() {
       wsRef.current = connectJobProgressWS(activeJobId, (data) => {
         if (data.type === 'progress') {
           setJobProgress({
-            job_id: data.job_id,
-            status: data.status,
-            current_stage: data.current_stage,
-            progress: data.progress,
+            job_id: data.job_id || activeJobId,
+            status: data.status || 'running',
+            current_stage: data.current_stage || null,
+            progress: data.progress || 0,
             elapsed_seconds: data.elapsed_seconds || 0,
             estimated_remaining_seconds: data.estimated_remaining_seconds || 0,
-            stage_details: data.stage_details,
+            stage_details: data.stage_details || null,
           });
         } else if (data.type === 'completed' || data.type === 'failed') {
           // Refresh docs lists and stop listening
-          loadDocs();
-          if (selectedDoc) {
-            api.getDocument(selectedDoc.id).then(setSelectedDoc);
+          void loadDocs();
+          if (selectedDocRef.current) {
+            void api.getDocument(selectedDocRef.current.id).then(setSelectedDoc);
           }
           if (data.type === 'completed') {
             setActivePage('results');
@@ -113,7 +131,7 @@ export default function App() {
         wsRef.current = null;
       }
     };
-  }, [activeJobId]);
+  }, [activeJobId, loadDocs]);
 
   // Handle document upload
   const handleFileUpload = async (file: File) => {
@@ -124,8 +142,8 @@ export default function App() {
       setDocuments(prev => [doc, ...prev]);
       setSelectedDoc(doc);
       setActivePage('upload'); // Transition to configs/start page
-    } catch (e: any) {
-      setError(e.message || 'File upload failed');
+    } catch (error: unknown) {
+      setError(getErrorMessage(error, 'File upload failed'));
     } finally {
       setLoading(false);
     }
@@ -141,7 +159,9 @@ export default function App() {
         enable_vision_validation: enableVision,
         enable_self_correction: enableSelfCorrection,
         enable_bangla_validation: enableBanglaValidation,
-        engines: ocrEngines,
+        ocr_engines: Object.entries(ocrEngines)
+          .filter(([, enabled]) => enabled)
+          .map(([engine]) => engine),
       };
       const job = await api.startJob(docId, options);
       setActiveJobId(job.id);
@@ -158,8 +178,8 @@ export default function App() {
       });
 
       setActivePage('processing');
-    } catch (e: any) {
-      setError(e.message || 'Failed to start document reconstruction');
+    } catch (error: unknown) {
+      setError(getErrorMessage(error, 'Failed to start document reconstruction'));
     } finally {
       setLoading(false);
     }
@@ -172,10 +192,10 @@ export default function App() {
       await api.cancelJob(activeJobId);
       setActiveJobId(null);
       setJobProgress(null);
-      loadDocs();
+      void loadDocs();
       setActivePage('dashboard');
-    } catch (e: any) {
-      setError(e.message || 'Failed to cancel job');
+    } catch (error: unknown) {
+      setError(getErrorMessage(error, 'Failed to cancel job'));
     }
   };
 
@@ -187,8 +207,8 @@ export default function App() {
       await api.deleteDocument(id);
       setDocuments(prev => prev.filter(d => d.id !== id));
       if (selectedDoc?.id === id) setSelectedDoc(null);
-    } catch (e: any) {
-      setError(e.message || 'Failed to delete document');
+    } catch (error: unknown) {
+      setError(getErrorMessage(error, 'Failed to delete document'));
     }
   };
 
@@ -201,7 +221,7 @@ export default function App() {
       const report = await api.getReport(doc.id);
       setQaReport(report);
       setActivePage('results');
-    } catch (e: any) {
+    } catch {
       setQaReport(null);
       setActivePage('results'); // still view results page even if QA report fails to load
     } finally {
@@ -217,7 +237,7 @@ export default function App() {
       const report = await api.getReport(doc.id);
       setQaReport(report);
       setActivePage('reports');
-    } catch (e: any) {
+    } catch {
       setError('QA reports not available for this document yet.');
     } finally {
       setLoading(false);
@@ -230,12 +250,12 @@ export default function App() {
     setError(null);
     try {
       const jobs = await api.getDocumentJobs(doc.id);
-      const activeJob = jobs.find((j: any) => j.status === 'pending' || j.status === 'running') || jobs[0];
+      const activeJob = jobs.find((job) => job.status === 'pending' || job.status === 'running') || jobs[0];
       if (activeJob) {
         setActiveJobId(activeJob.id);
         setJobProgress({
           job_id: activeJob.id,
-          status: activeJob.status as any,
+          status: activeJob.status,
           current_stage: activeJob.current_stage,
           progress: activeJob.progress,
           elapsed_seconds: 0,
@@ -246,8 +266,8 @@ export default function App() {
       } else {
         setError('No active job found for this document.');
       }
-    } catch (e: any) {
-      setError(e.message || 'Failed to fetch job progress');
+    } catch (error: unknown) {
+      setError(getErrorMessage(error, 'Failed to fetch job progress'));
     } finally {
       setLoading(false);
     }
@@ -390,7 +410,10 @@ export default function App() {
           <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
             {loading && <RefreshCw size={16} className="animate-spin text-indigo-400" />}
             <span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
-              Server: <span style={{ color: 'var(--success)' }}>Connected</span>
+              Server:{' '}
+              <span style={{ color: serverConnected ? 'var(--success)' : 'var(--error)' }}>
+                {serverConnected ? 'Connected' : 'Offline'}
+              </span>
             </span>
           </div>
         </header>
@@ -433,8 +456,9 @@ export default function App() {
                     const input = document.createElement('input');
                     input.type = 'file';
                     input.accept = '.pdf,.png,.jpg,.jpeg';
-                    input.onchange = (e: any) => {
-                      const file = e.target.files[0];
+                    input.onchange = (event: Event) => {
+                      const target = event.target as HTMLInputElement;
+                      const file = target.files?.[0];
                       if (file) handleFileUpload(file);
                     };
                     input.click();
@@ -956,7 +980,12 @@ export default function App() {
                     <label style={{ display: 'block', fontWeight: 600, marginBottom: '8px' }}>Compute Device</label>
                     <select 
                       value={device} 
-                      onChange={(e) => setDevice(e.target.value as any)}
+                      onChange={(e) => {
+                        const nextDevice = e.target.value;
+                        if (nextDevice === 'cpu' || nextDevice === 'cuda') {
+                          setDevice(nextDevice);
+                        }
+                      }}
                       style={{ 
                         width: '100%', 
                         padding: '12px', 

@@ -34,13 +34,16 @@ class StageDetail(BaseModel):
     progress: float
     status: str
     timestamp: str | None = None
+    started_at: str | None = None
+    completed_at: str | None = None
+    error_message: str | None = None
 
 
 class JobResponse(BaseModel):
     id: str
     document_id: str
     status: str
-    current_stage: str
+    current_stage: str | None = None
     progress: float
     stage_details: dict[str, StageDetail] | None = None
     celery_task_id: str | None = None
@@ -56,7 +59,7 @@ class JobResponse(BaseModel):
 class JobProgressResponse(BaseModel):
     job_id: str
     status: str
-    current_stage: str
+    current_stage: str | None = None
     progress: float
     stage_details: dict[str, StageDetail] | None = None
     elapsed_seconds: float | None = None

@@ -114,6 +114,19 @@ class Settings(BaseSettings):
     celery_broker_url: str = "redis://localhost:6379/0"
     celery_result_backend: str = "redis://localhost:6379/1"
 
+    @field_validator("debug", mode="before")
+    @classmethod
+    def parse_debug_flag(cls, v: object) -> bool:
+        if isinstance(v, bool):
+            return v
+        if isinstance(v, str):
+            normalized = v.strip().lower()
+            if normalized in {"1", "true", "yes", "y", "on", "debug", "development"}:
+                return True
+            if normalized in {"0", "false", "no", "n", "off", "release", "production"}:
+                return False
+        return bool(v)
+
     @property
     def allowed_extensions_list(self) -> list[str]:
         return [ext.strip().lower() for ext in self.allowed_extensions.split(",")]

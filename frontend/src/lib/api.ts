@@ -31,6 +31,35 @@ export interface JobProgress {
   }> | null;
 }
 
+export interface JobInfo {
+  id: string;
+  document_id: string;
+  status: JobProgress['status'];
+  current_stage: string | null;
+  progress: number;
+  stage_details: JobProgress['stage_details'];
+  created_at: string;
+}
+
+export interface JobStartOptions {
+  dpi: number;
+  enable_vision_validation: boolean;
+  enable_self_correction: boolean;
+  enable_bangla_validation: boolean;
+  ocr_engines?: string[];
+}
+
+export interface JobEvent {
+  type: 'progress' | 'completed' | 'failed' | string;
+  job_id?: string;
+  status?: JobProgress['status'];
+  current_stage?: string | null;
+  progress?: number;
+  elapsed_seconds?: number | null;
+  estimated_remaining_seconds?: number | null;
+  stage_details?: JobProgress['stage_details'];
+}
+
 export interface QAReport {
   overall_score: number;
   total_pages: number;
@@ -51,24 +80,54 @@ export interface QAReport {
   }>;
 }
 
-const API_HOST = import.meta.env.VITE_API_BASE 
-  ? import.meta.env.VITE_API_BASE.replace(/^https?:\/\//, '') 
-  : `${window.location.hostname}:8000`;
+interface ReportInfo {
+  report_type: string;
+  data: QAReport;
+}
 
-const API_BASE = `${window.location.protocol}//${API_HOST}`;
+const API_URL = import.meta.env.VITE_API_URL || import.meta.env.VITE_API_BASE;
+const WS_URL = import.meta.env.VITE_WS_URL;
+
+// Use relative paths if API_URL is not explicitly set, 
+// relying on Vite proxy in dev and Nginx proxy in prod.
+const API_BASE = API_URL ? API_URL.replace(/\/$/, '') : '';
+
+async function readApiError(res: Response, fallback: string): Promise<Error> {
+  const body = await res.json().catch(() => null) as { detail?: string } | null;
+  return new Error(body?.detail || fallback);
+}
+
+export function getErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof Error && error.message) {
+    if (error.message === 'Failed to fetch') {
+      return 'Cannot reach backend API. Please make sure the server is running.';
+    }
+    return error.message;
+  }
+  return fallback;
+}
 
 export const api = {
+  health: async (): Promise<boolean> => {
+    try {
+      const res = await fetch(`${API_BASE}/api/health`);
+      return res.ok;
+    } catch {
+      return false;
+    }
+  },
+
   getDocuments: async (page = 1, pageSize = 20, status?: string): Promise<{ documents: DocumentInfo[]; total: number }> => {
     let url = `${API_BASE}/api/documents?page=${page}&page_size=${pageSize}`;
     if (status) url += `&status=${status}`;
     const res = await fetch(url);
-    if (!res.ok) throw new Error('Failed to fetch documents');
+    if (!res.ok) throw await readApiError(res, 'Failed to fetch documents');
     return res.json();
   },
 
   getDocument: async (id: string): Promise<DocumentInfo> => {
     const res = await fetch(`${API_BASE}/api/documents/${id}`);
-    if (!res.ok) throw new Error('Failed to fetch document details');
+    if (!res.ok) throw await readApiError(res, 'Failed to fetch document details');
     return res.json();
   },
 
@@ -80,8 +139,7 @@ export const api = {
       body: formData,
     });
     if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.detail || 'Failed to upload document');
+      throw await readApiError(res, 'Failed to upload document');
     }
     return res.json();
   },
@@ -90,31 +148,30 @@ export const api = {
     const res = await fetch(`${API_BASE}/api/documents/${id}`, {
       method: 'DELETE',
     });
-    if (!res.ok) throw new Error('Failed to delete document');
+    if (!res.ok) throw await readApiError(res, 'Failed to delete document');
   },
 
-  startJob: async (documentId: string, options: any = {}): Promise<{ id: string; status: string }> => {
+  startJob: async (documentId: string, options: JobStartOptions): Promise<{ id: string; status: string }> => {
     const res = await fetch(`${API_BASE}/api/jobs/start/${documentId}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(options),
     });
     if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.detail || 'Failed to start job');
+      throw await readApiError(res, 'Failed to start job');
     }
     return res.json();
   },
 
   getJobProgress: async (jobId: string): Promise<JobProgress> => {
     const res = await fetch(`${API_BASE}/api/jobs/${jobId}/progress`);
-    if (!res.ok) throw new Error('Failed to get job progress');
+    if (!res.ok) throw await readApiError(res, 'Failed to get job progress');
     return res.json();
   },
 
-  getDocumentJobs: async (documentId: string): Promise<any[]> => {
+  getDocumentJobs: async (documentId: string): Promise<JobInfo[]> => {
     const res = await fetch(`${API_BASE}/api/jobs/document/${documentId}`);
-    if (!res.ok) throw new Error('Failed to fetch jobs for document');
+    if (!res.ok) throw await readApiError(res, 'Failed to fetch jobs for document');
     return res.json();
   },
 
@@ -122,16 +179,16 @@ export const api = {
     const res = await fetch(`${API_BASE}/api/jobs/${jobId}/cancel`, {
       method: 'POST',
     });
-    if (!res.ok) throw new Error('Failed to cancel job');
+    if (!res.ok) throw await readApiError(res, 'Failed to cancel job');
   },
 
   getReport: async (documentId: string): Promise<QAReport> => {
     const res = await fetch(`${API_BASE}/api/reports/${documentId}`);
-    if (!res.ok) throw new Error('Failed to fetch QA report');
+    if (!res.ok) throw await readApiError(res, 'Failed to fetch QA report');
     // Reports API returns a list of reports, find the 'qa' type
-    const data = await res.json();
+    const data = await res.json() as { reports?: ReportInfo[] };
     const reports = data.reports || [];
-    const qaReport = reports.find((r: any) => r.report_type === 'qa');
+    const qaReport = reports.find((r) => r.report_type === 'qa');
     if (!qaReport) throw new Error('QA Report not found');
     return qaReport.data;
   },
@@ -157,15 +214,18 @@ export const api = {
   }
 };
 
-export function connectJobProgressWS(jobId: string, onMessage: (data: any) => void): WebSocket {
+export function connectJobProgressWS(jobId: string, onMessage: (data: JobEvent) => void): WebSocket {
   const ws_protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const ws = new WebSocket(`${ws_protocol}//${API_HOST}/ws/jobs/${jobId}`);
+  // Use relative path equivalent for websockets by constructing from window.location
+  const defaultWsBase = `${ws_protocol}//${window.location.host}`;
+  const wsBase = WS_URL ? WS_URL.replace(/\/$/, '') : defaultWsBase;
+  const ws = new WebSocket(`${wsBase}/ws/jobs/${jobId}`);
   ws.onmessage = (event) => {
     try {
-      const data = JSON.parse(event.data);
+      const data = JSON.parse(event.data) as JobEvent;
       onMessage(data);
-    } catch (e) {
-      console.error('Failed to parse WebSocket message:', e);
+    } catch (error) {
+      console.error('Failed to parse WebSocket message:', error);
     }
   };
   ws.onerror = (err) => {
