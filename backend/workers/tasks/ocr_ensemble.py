@@ -27,6 +27,18 @@ def run_ocr_ensemble(document_id: str, job_id: str, options: dict | None = None)
     from engines.ocr.ensemble import create_ensemble
     import gc
 
+    # Set thread limits inside background worker thread to prevent OpenMP/MKL deadlocks
+    try:
+        import torch
+        torch.set_num_threads(1)
+    except ImportError:
+        pass
+    try:
+        import cv2
+        cv2.setNumThreads(0)
+    except ImportError:
+        pass
+
     db = get_sync_db()
     options = options or {}
 
@@ -89,8 +101,9 @@ def run_ocr_ensemble(document_id: str, job_id: str, options: dict | None = None)
                         logger.warning(f"Page {page.page_number} has no image, skipping OCR")
                         continue
 
-                    # Load and preprocess image on the fly
-                    image = np.array(Image.open(page.image_path).convert("RGB"))
+                    # Load and preprocess image on the fly with context manager
+                    with Image.open(page.image_path) as img:
+                        image = np.array(img.convert("RGB"))
                     processed_image = _preprocess_image(image)
 
                     # Run recognition on pre-processed image

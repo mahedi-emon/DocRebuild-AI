@@ -7,6 +7,20 @@ application lifecycle (startup/shutdown).
 
 from __future__ import annotations
 
+# Configure thread limits to prevent OpenMP/MKL background thread deadlocks
+import os
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
+os.environ["OPENBLAS_NUM_THREADS"] = "1"
+os.environ["VECLIB_MAXIMUM_THREADS"] = "1"
+os.environ["NUMEXPR_NUM_THREADS"] = "1"
+
+try:
+    import cv2
+    cv2.setNumThreads(0)
+except ImportError:
+    pass
+
 import structlog
 from contextlib import asynccontextmanager
 
@@ -28,6 +42,12 @@ async def lifespan(app: FastAPI):
     """Application startup/shutdown lifecycle."""
     # ── Startup ──
     logger.info("Starting DocRebuild AI", env=settings.app_env.value)
+    try:
+        import torch
+        torch.set_num_threads(1)
+        logger.info("PyTorch CPU thread limit set to 1 to prevent background thread deadlocks")
+    except ImportError:
+        pass
     settings.ensure_directories()
     await init_db()
     logger.info("Database initialized")
