@@ -30,7 +30,7 @@ def run_ocr_ensemble(document_id: str, job_id: str, options: dict | None = None)
     # Set thread limits inside background worker thread to prevent OpenMP/MKL deadlocks
     try:
         import torch
-        torch.set_num_threads(1)
+        torch.set_num_threads(4)
     except ImportError:
         pass
     try:

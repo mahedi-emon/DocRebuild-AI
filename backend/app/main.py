@@ -9,11 +9,11 @@ from __future__ import annotations
 
 # Configure thread limits to prevent OpenMP/MKL background thread deadlocks
 import os
-os.environ["OMP_NUM_THREADS"] = "1"
-os.environ["MKL_NUM_THREADS"] = "1"
-os.environ["OPENBLAS_NUM_THREADS"] = "1"
-os.environ["VECLIB_MAXIMUM_THREADS"] = "1"
-os.environ["NUMEXPR_NUM_THREADS"] = "1"
+os.environ["OMP_NUM_THREADS"] = "4"
+os.environ["MKL_NUM_THREADS"] = "4"
+os.environ["OPENBLAS_NUM_THREADS"] = "4"
+os.environ["VECLIB_MAXIMUM_THREADS"] = "4"
+os.environ["NUMEXPR_NUM_THREADS"] = "4"
 
 try:
     import cv2
@@ -44,8 +44,8 @@ async def lifespan(app: FastAPI):
     logger.info("Starting DocRebuild AI", env=settings.app_env.value)
     try:
         import torch
-        torch.set_num_threads(1)
-        logger.info("PyTorch CPU thread limit set to 1 to prevent background thread deadlocks")
+        torch.set_num_threads(4)
+        logger.info("PyTorch CPU thread limit set to 4 to prevent background thread deadlocks while optimizing performance")
     except ImportError:
         pass
     settings.ensure_directories()

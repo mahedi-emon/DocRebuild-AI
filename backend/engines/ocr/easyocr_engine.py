@@ -54,8 +54,10 @@ class EasyOCREngine(BaseOCREngine):
         self.initialize()
         start_time = time.time()
 
-        # EasyOCR expects numpy array or path
-        results_raw = self._reader.readtext(image, detail=1, paragraph=False)
+        # EasyOCR expects numpy array or path.
+        # Set workers=0 to prevent PyTorch DataLoader from spawning subprocesses
+        # which deadlock when run from background threads on Windows.
+        results_raw = self._reader.readtext(image, detail=1, paragraph=False, workers=0)
 
         lines = []
         all_words = []
