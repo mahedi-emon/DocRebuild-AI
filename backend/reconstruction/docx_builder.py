@@ -190,17 +190,26 @@ class DocxBuilder:
         element_text_mapping = {i: [] for i in range(len(elements))}
         assigned_line_indices = set()
 
+        def get_bbox(el):
+            b = el.get("bbox")
+            if not b or not isinstance(b, (list, tuple)) or len(b) < 4:
+                return [0.0, 0.0, 0.0, 0.0]
+            try:
+                return [float(b[0]), float(b[1]), float(b[2]), float(b[3])]
+            except (ValueError, TypeError):
+                return [0.0, 0.0, 0.0, 0.0]
+
         # Sort elements by bounding box area in ascending order (smallest/most specific first)
         indexed_elements = list(enumerate(elements))
-        indexed_elements.sort(key=lambda item: (item[1].get("bbox", [0,0,0,0])[2] - item[1].get("bbox", [0,0,0,0])[0]) * 
-                                              (item[1].get("bbox", [0,0,0,0])[3] - item[1].get("bbox", [0,0,0,0])[1]))
+        indexed_elements.sort(key=lambda item: (get_bbox(item[1])[2] - get_bbox(item[1])[0]) * 
+                                              (get_bbox(item[1])[3] - get_bbox(item[1])[1]))
 
         for el_idx, element in indexed_elements:
-            bbox = element.get("bbox", [0, 0, 0, 0])
+            bbox = get_bbox(element)
             for line_idx, line in enumerate(ocr_lines):
                 if line_idx in assigned_line_indices:
                     continue
-                line_bbox = line.get("bbox", [0, 0, 0, 0])
+                line_bbox = get_bbox(line)
                 if self._bboxes_overlap(bbox, line_bbox):
                     element_text_mapping[el_idx].append(line)
                     assigned_line_indices.add(line_idx)
