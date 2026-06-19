@@ -44,3 +44,6 @@ aiofiles>=24.1.0
 structlog>=24.4.0
 orjson>=3.10.0
 latex2mathml>=3.77.0
+einops>=0.8.0
+accelerate>=0.33.0
+sentencepiece>=0.2.0
