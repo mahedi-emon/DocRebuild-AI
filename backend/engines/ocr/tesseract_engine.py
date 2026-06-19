@@ -30,7 +30,7 @@ class TesseractOCREngine(BaseOCREngine):
 
     @property
     def supported_languages(self) -> list[str]:
-        return ["en", "bn"]
+        return ["en", "bn", "ar"]
 
     def initialize(self) -> None:
         if self._initialized:
@@ -44,7 +44,7 @@ class TesseractOCREngine(BaseOCREngine):
             raise ImportError(
                 f"Tesseract not available: {e}. "
                 "Install Tesseract-OCR and pytesseract. "
-                "Also install Bengali language pack: apt-get install tesseract-ocr-ben"
+                "Also install Bengali and Arabic language packs: apt-get install tesseract-ocr-ben tesseract-ocr-ara"
             )
 
     def recognize(self, image: np.ndarray, languages: list[str] | None = None) -> OCRResult:
@@ -59,8 +59,9 @@ class TesseractOCREngine(BaseOCREngine):
         # Determine language string
         lang = "ben+eng"
         if languages:
-            lang_map = {"en": "eng", "bn": "ben"}
-            lang_parts = [lang_map.get(l, l) for l in languages if l in lang_map]
+            lang_map = {"en": "eng", "bn": "ben", "ar": "ara"}
+            lang_parts = [lang_map.get(l, l) for l in languages]
+            lang_parts = [p for p in lang_parts if p]
             if lang_parts:
                 lang = "+".join(lang_parts)
 

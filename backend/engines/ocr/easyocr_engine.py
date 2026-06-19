@@ -26,7 +26,7 @@ class EasyOCREngine(BaseOCREngine):
 
     @property
     def supported_languages(self) -> list[str]:
-        return ["en", "bn"]
+        return ["en", "bn", "ar"]
 
     def initialize(self) -> None:
         if self._initialized:
@@ -42,7 +42,7 @@ class EasyOCREngine(BaseOCREngine):
                 pass
 
             self._reader = easyocr.Reader(
-                ["bn", "en"],
+                ["bn", "en", "ar"],
                 gpu=gpu,
                 verbose=False,
             )

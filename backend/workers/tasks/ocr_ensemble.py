@@ -59,8 +59,8 @@ def run_ocr_ensemble(document_id: str, job_id: str, options: dict | None = None)
         # Results accumulator: page.page_number -> {engine_name: OCRResult}
         results_by_page = {page.page_number: {} for page in pages}
         
-        # Filter engines that will actually run based on requested languages (default 'bn' and 'en')
-        languages = ["bn", "en"]
+        # Filter engines that will actually run based on requested languages (default 'bn', 'en', and 'ar')
+        languages = ["bn", "en", "ar"]
         engines_to_run = []
         for engine in ensemble._engines:
             # Check availability first to filter out engines without installed dependencies/executables
