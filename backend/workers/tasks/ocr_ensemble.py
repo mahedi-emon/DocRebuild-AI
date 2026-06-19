@@ -109,11 +109,16 @@ def run_ocr_ensemble(document_id: str, job_id: str, options: dict | None = None)
                     # Load and preprocess image on the fly with context manager
                     with Image.open(page.image_path) as img:
                         image = np.array(img.convert("RGB"))
-                    processed_image = _preprocess_image(image)
 
-                    # Run recognition on pre-processed image
+                    # Only preprocess for Tesseract engine
+                    if engine.name == "tesseract":
+                        ocr_input_image = _preprocess_image(image)
+                    else:
+                        ocr_input_image = image
+
+                    # Run recognition on appropriate image
                     logger.info(f"Running engine '{engine.name}' on page {page.page_number}...")
-                    result = engine.recognize(processed_image, languages=languages)
+                    result = engine.recognize(ocr_input_image, languages=languages)
                     results_by_page[page.page_number][engine.name] = result
 
             except Exception as e:

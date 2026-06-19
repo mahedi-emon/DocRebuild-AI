@@ -57,7 +57,7 @@ class TesseractOCREngine(BaseOCREngine):
         pil_image = Image.fromarray(image)
 
         # Determine language string
-        lang = "eng+ben"
+        lang = "ben+eng"
         if languages:
             lang_map = {"en": "eng", "bn": "ben"}
             lang_parts = [lang_map.get(l, l) for l in languages if l in lang_map]

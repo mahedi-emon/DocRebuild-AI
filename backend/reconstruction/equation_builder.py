@@ -64,24 +64,43 @@ class EquationBuilder:
 
     def _add_omml_equation(self, doc: DocxDocument, latex: str, eq_type: str) -> None:
         """
-        Convert LaTeX to OMML and insert into the document.
-        Uses latex2mathml for conversion.
+        Convert LaTeX to OMML and insert into the document natively.
+        Uses latex2mathml and lxml for conversion.
         """
         import latex2mathml.converter
         from lxml import etree
+        from docx.oxml import parse_xml
 
         # Convert LaTeX to MathML
-        mathml = latex2mathml.converter.convert(latex)
+        mathml_str = latex2mathml.converter.convert(latex)
 
-        # Convert MathML to OMML using XSLT
-        # Note: This requires the MML2OMML.XSL stylesheet
+        # Load XSLT stylesheet from backend/reconstruction/MML2OMML.XSL
+        xslt_path = Path(__file__).parent / "MML2OMML.XSL"
+        if not xslt_path.exists():
+            xslt_path = Path("reconstruction/MML2OMML.XSL")
+
+        if not xslt_path.exists():
+            raise FileNotFoundError(f"MML2OMML.XSL not found at {xslt_path.absolute()}")
+
+        xslt_tree = etree.parse(str(xslt_path))
+        transform = etree.XSLT(xslt_tree)
+
+        # Transform MathML to OMML
+        mathml_tree = etree.fromstring(mathml_str)
+        omml_tree = transform(mathml_tree)
+
+        # Get XML string of the generated OMML element
+        omml_xml = etree.tostring(omml_tree, encoding="utf-8").decode("utf-8")
+
+        # Parse XML element
+        omml_element = parse_xml(omml_xml)
+
         para = doc.add_paragraph()
         if eq_type == "display":
             para.alignment = WD_ALIGN_PARAGRAPH.CENTER
 
-        # Add LaTeX as text (readable fallback)
-        run = para.add_run(f"[{latex}]")
-        run.font.size = Pt(11)
+        # Append the native OMML element to the paragraph
+        para._element.append(omml_element)
 
     def _add_math2docx(self, doc: DocxDocument, latex: str) -> None:
         """Use math2docx library for equation insertion."""

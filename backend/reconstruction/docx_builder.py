@@ -86,22 +86,14 @@ class DocxBuilder:
         # Add page numbers
         self._add_page_numbers()
 
-        # Decide text source strategy
-        if understanding_text and len(understanding_text.strip()) > 50:
-            # Use high-quality Docling/Marker text as primary source
-            logger.info(
-                f"Using understanding engine text ({len(understanding_text)} chars) "
-                f"as primary source"
-            )
-            self._build_from_markdown(understanding_text, pages_data)
-        else:
-            # Fall back to OCR-based reconstruction
-            logger.info("Using OCR ensemble text for reconstruction")
-            for page_idx, page_data in enumerate(pages_data):
-                logger.info(f"Building page {page_idx + 1}/{len(pages_data)}")
-                if page_idx > 0:
-                    self._doc.add_page_break()
-                self._build_page(page_data)
+        # Force page-by-page OCR-based reconstruction to preserve 1-to-1 page alignment,
+        # layouts, tables, and native equations.
+        logger.info("Using OCR-based page-by-page reconstruction")
+        for page_idx, page_data in enumerate(pages_data):
+            logger.info(f"Building page {page_idx + 1}/{len(pages_data)}")
+            if page_idx > 0:
+                self._doc.add_page_break()
+            self._build_page(page_data)
 
         # Save
         output_file = Path(output_path)
@@ -156,70 +148,6 @@ class DocxBuilder:
         except Exception as e:
             logger.warning(f"Could not add page numbers: {e}")
 
-    def _build_from_markdown(self, markdown_text: str, pages_data: list[dict]) -> None:
-        """
-        Build DOCX from high-quality markdown text (from Docling/Marker).
-        This produces much better results than OCR-based reconstruction.
-        """
-        lines = markdown_text.split("\n")
-        page_idx = 0
-
-        for line in lines:
-            stripped = line.strip()
-            if not stripped:
-                # Preserve paragraph breaks
-                continue
-
-            # Detect page breaks (markdown page break patterns)
-            if stripped in ("---", "***", "___") or stripped.startswith("<!-- page"):
-                if page_idx > 0:
-                    self._doc.add_page_break()
-                page_idx += 1
-                continue
-
-            # Detect headings
-            if stripped.startswith("# "):
-                heading_text = stripped[2:].strip()
-                if heading_text:
-                    para = self._doc.add_heading(heading_text, level=1)
-                    para.alignment = WD_ALIGN_PARAGRAPH.CENTER
-                continue
-            elif stripped.startswith("## "):
-                heading_text = stripped[3:].strip()
-                if heading_text:
-                    self._doc.add_heading(heading_text, level=2)
-                continue
-            elif stripped.startswith("### "):
-                heading_text = stripped[4:].strip()
-                if heading_text:
-                    self._doc.add_heading(heading_text, level=3)
-                continue
-
-            # Detect list items
-            if stripped.startswith("- ") or stripped.startswith("* "):
-                item_text = stripped[2:].strip()
-                if item_text:
-                    self._doc.add_paragraph(item_text, style="List Bullet")
-                continue
-
-            # Numbered list items
-            import re
-            numbered = re.match(r"^(\d+)[.)]\s+(.+)$", stripped)
-            if numbered:
-                item_text = numbered.group(2).strip()
-                if item_text:
-                    self._doc.add_paragraph(item_text, style="List Number")
-                continue
-
-            # Regular paragraph
-            para = self._doc.add_paragraph()
-            run = para.add_run(stripped)
-            run.font.name = "Noto Sans Bengali"
-            run.font.size = Pt(11)
-            para.paragraph_format.space_after = Pt(4)
-            para.paragraph_format.space_before = Pt(2)
-            para.paragraph_format.line_spacing = 1.15
-
     def _build_page(self, page_data: dict) -> None:
         """
         Reconstruct a single page from its processed data.
@@ -241,6 +169,7 @@ class DocxBuilder:
         image_path = page_data.get("image_path", "")
 
         elements = layout.get("elements", [])
+        ocr_lines = ocr_data.get("lines", [])
 
         if not elements:
             # Fallback: add all OCR text preserving line breaks
@@ -257,21 +186,40 @@ class DocxBuilder:
                         para.paragraph_format.line_spacing = 1.15
             return
 
+        # Pre-assign OCR lines to layout elements to prevent overlap text duplication
+        element_text_mapping = {i: [] for i in range(len(elements))}
+        assigned_line_indices = set()
+
+        # Sort elements by bounding box area in ascending order (smallest/most specific first)
+        indexed_elements = list(enumerate(elements))
+        indexed_elements.sort(key=lambda item: (item[1].get("bbox", [0,0,0,0])[2] - item[1].get("bbox", [0,0,0,0])[0]) * 
+                                              (item[1].get("bbox", [0,0,0,0])[3] - item[1].get("bbox", [0,0,0,0])[1]))
+
+        for el_idx, element in indexed_elements:
+            bbox = element.get("bbox", [0, 0, 0, 0])
+            for line_idx, line in enumerate(ocr_lines):
+                if line_idx in assigned_line_indices:
+                    continue
+                line_bbox = line.get("bbox", [0, 0, 0, 0])
+                if self._bboxes_overlap(bbox, line_bbox):
+                    element_text_mapping[el_idx].append(line)
+                    assigned_line_indices.add(line_idx)
+
         # Process elements in reading order
         table_idx = 0
         equation_idx = 0
 
-        for element in sorted(elements, key=lambda e: e.get("reading_order", 0)):
+        for el_idx, element in sorted(list(enumerate(elements)), key=lambda e: e[1].get("reading_order", 0)):
             element_type = element.get("type", "unknown")
-            bbox = element.get("bbox", [0, 0, 100, 100])
+            assigned_lines = element_text_mapping[el_idx]
 
             try:
                 if element_type == "title":
-                    self._add_title(element, ocr_data)
+                    self._add_title(element, assigned_lines)
                 elif element_type == "subtitle":
-                    self._add_subtitle(element, ocr_data)
+                    self._add_subtitle(element, assigned_lines)
                 elif element_type in ("paragraph", "unknown"):
-                    self._add_paragraph(element, ocr_data)
+                    self._add_paragraph(element, assigned_lines)
                 elif element_type == "table" and table_idx < len(tables):
                     self._table_builder.add_table(self._doc, tables[table_idx])
                     table_idx += 1
@@ -281,39 +229,37 @@ class DocxBuilder:
                 elif element_type in ("image", "figure"):
                     self._image_inserter.add_image(self._doc, element, image_path)
                 elif element_type == "caption":
-                    self._add_caption(element, ocr_data)
+                    self._add_caption(element, assigned_lines)
                 elif element_type == "header":
                     pass  # Headers handled separately
                 elif element_type == "footer":
                     pass  # Footers handled separately
                 elif element_type == "list":
-                    self._add_list(element, ocr_data)
+                    self._add_list(element, assigned_lines)
                 elif element_type == "exercise":
-                    self._add_exercise(element, ocr_data)
+                    self._add_exercise(element, assigned_lines)
                 else:
                     # Default: treat as paragraph
-                    self._add_paragraph(element, ocr_data)
+                    self._add_paragraph(element, assigned_lines)
             except Exception as e:
                 logger.warning(f"Error processing {element_type}: {e}")
                 # Fallback: add as plain text
-                text = self._get_text_for_region(element, ocr_data)
+                text = "\n".join(line.get("text", "") for line in assigned_lines) if assigned_lines else ""
                 if text:
                     self._doc.add_paragraph(text)
 
-    def _get_text_for_region(self, element: dict, ocr_data: dict) -> str:
-        """Extract OCR text that falls within a layout element's bounding box.
-        Preserves line breaks instead of joining with spaces."""
-        bbox = element.get("bbox", [0, 0, 0, 0])
-        lines = ocr_data.get("lines", [])
-
-        matching_lines = []
-        for line in lines:
-            line_bbox = line.get("bbox", [0, 0, 0, 0])
-            # Check if line overlaps with element bbox
-            if self._bboxes_overlap(bbox, line_bbox):
-                matching_lines.append(line.get("text", ""))
-
-        return "\n".join(matching_lines) if matching_lines else ""
+        # Fallback for any unassigned text lines to ensure 100% text coverage
+        unassigned_lines = []
+        for line_idx, line in enumerate(ocr_lines):
+            if line_idx not in assigned_line_indices:
+                unassigned_lines.append(line)
+        if unassigned_lines:
+            logger.info(f"Page {page_data.get('page_number')}: adding {len(unassigned_lines)} unassigned OCR lines as fallback")
+            para = self._doc.add_paragraph()
+            text = "\n".join(line.get("text", "") for line in unassigned_lines)
+            run = para.add_run(text)
+            run.font.name = "Noto Sans Bengali"
+            run.font.size = Pt(11)
 
     def _bboxes_overlap(self, bbox1: list, bbox2: list) -> bool:
         """Check if two bounding boxes overlap significantly."""
@@ -330,19 +276,19 @@ class DocxBuilder:
 
         return intersection / max(area2, 1) > 0.3
 
-    def _add_title(self, element: dict, ocr_data: dict) -> None:
-        text = self._get_text_for_region(element, ocr_data)
+    def _add_title(self, element: dict, assigned_lines: list[dict]) -> None:
+        text = " ".join(line.get("text", "") for line in assigned_lines) if assigned_lines else ""
         if text:
-            para = self._doc.add_heading(text.replace("\n", " "), level=1)
+            para = self._doc.add_heading(text, level=1)
             para.alignment = WD_ALIGN_PARAGRAPH.CENTER
 
-    def _add_subtitle(self, element: dict, ocr_data: dict) -> None:
-        text = self._get_text_for_region(element, ocr_data)
+    def _add_subtitle(self, element: dict, assigned_lines: list[dict]) -> None:
+        text = " ".join(line.get("text", "") for line in assigned_lines) if assigned_lines else ""
         if text:
-            self._doc.add_heading(text.replace("\n", " "), level=2)
+            self._doc.add_heading(text, level=2)
 
-    def _add_paragraph(self, element: dict, ocr_data: dict) -> None:
-        text = self._get_text_for_region(element, ocr_data)
+    def _add_paragraph(self, element: dict, assigned_lines: list[dict]) -> None:
+        text = "\n".join(line.get("text", "") for line in assigned_lines) if assigned_lines else ""
         if text:
             para = self._doc.add_paragraph()
             run = para.add_run(text)
@@ -352,29 +298,28 @@ class DocxBuilder:
             para.paragraph_format.space_before = Pt(2)
             para.paragraph_format.line_spacing = 1.15
 
-    def _add_caption(self, element: dict, ocr_data: dict) -> None:
-        text = self._get_text_for_region(element, ocr_data)
+    def _add_caption(self, element: dict, assigned_lines: list[dict]) -> None:
+        text = " ".join(line.get("text", "") for line in assigned_lines) if assigned_lines else ""
         if text:
             para = self._doc.add_paragraph()
             para.style = "Caption" if "Caption" in self._doc.styles else para.style
             para.alignment = WD_ALIGN_PARAGRAPH.CENTER
-            run = para.add_run(text.replace("\n", " "))
+            run = para.add_run(text)
             run.italic = True
             run.font.size = Pt(9)
             run.font.name = "Noto Sans Bengali"
 
-    def _add_list(self, element: dict, ocr_data: dict) -> None:
-        text = self._get_text_for_region(element, ocr_data)
-        if text:
-            for item in text.split("\n"):
-                item = item.strip()
+    def _add_list(self, element: dict, assigned_lines: list[dict]) -> None:
+        if assigned_lines:
+            for line in assigned_lines:
+                item = line.get("text", "").strip()
                 if item:
                     para = self._doc.add_paragraph(item, style="List Bullet")
                     for run in para.runs:
                         run.font.name = "Noto Sans Bengali"
 
-    def _add_exercise(self, element: dict, ocr_data: dict) -> None:
-        text = self._get_text_for_region(element, ocr_data)
+    def _add_exercise(self, element: dict, assigned_lines: list[dict]) -> None:
+        text = "\n".join(line.get("text", "") for line in assigned_lines) if assigned_lines else ""
         if text:
             para = self._doc.add_paragraph()
             run = para.add_run(text)
