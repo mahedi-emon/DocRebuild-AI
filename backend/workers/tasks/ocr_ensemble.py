@@ -63,6 +63,11 @@ def run_ocr_ensemble(document_id: str, job_id: str, options: dict | None = None)
         languages = ["bn", "en"]
         engines_to_run = []
         for engine in ensemble._engines:
+            # Check availability first to filter out engines without installed dependencies/executables
+            if not engine.is_available():
+                logger.warning(f"OCR engine '{engine.name}' is enabled in settings but dependencies are not available. Skipping.")
+                continue
+
             if languages:
                 if "bn" in languages:
                     if "bn" in engine.supported_languages:
