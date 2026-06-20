@@ -55,10 +55,10 @@ class ImageInserter:
             temp_path = Path(source_image_path).parent / f"_crop_{id(element)}.png"
             save_image(region, str(temp_path))
 
-            # Calculate appropriate width
+            # Calculate appropriate width (scaled down slightly to prevent page breaks)
             h, w = region.shape[:2]
             aspect = w / h if h > 0 else 1
-            width = min(max_width_inches, aspect * 3.0)
+            width = min(max_width_inches * 0.75, aspect * 2.2)
 
             # Insert image
             para = doc.add_paragraph()

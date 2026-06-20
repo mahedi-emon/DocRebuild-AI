@@ -23,7 +23,7 @@ import numpy as np
 
 from engines.ocr.base_ocr import BaseOCREngine, OCRResult, OCRLine, OCRWord
 from app.config import get_settings
-from app.utils.text_utils import levenshtein_distance, normalize_text
+from app.utils.text_utils import levenshtein_distance, normalize_text, devanagari_to_bengali
 from app.utils.image_utils import compute_iou
 
 logger = logging.getLogger(__name__)
@@ -159,8 +159,8 @@ class OCREnsemble:
 
         start_time = time.time()
 
-        # Check if this is a Bangla-dominant page
-        is_bangla_page = all(
+        # Check if this is a Bangla-dominant page (any engine supports it)
+        is_bangla_page = any(
             name in BANGLA_CAPABLE_ENGINES for name in engine_results
         )
 
@@ -390,7 +390,7 @@ class OCREnsemble:
         )
 
         result_word = OCRWord(
-            text=best_candidate[0].text,
+            text=devanagari_to_bengali(best_candidate[0].text),
             bbox=best_candidate[0].bbox,
             confidence=best_score / max(len(cluster), 1),
             language=best_candidate[0].language,

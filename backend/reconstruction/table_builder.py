@@ -66,5 +66,9 @@ class TableBuilder:
                     for run in para.runs:
                         run.bold = True
 
-        # Add spacing after table
-        doc.add_paragraph()
+        # Add compact spacing after table
+        p = doc.add_paragraph()
+        p.paragraph_format.space_before = Pt(0)
+        p.paragraph_format.space_after = Pt(4)
+        run = p.add_run()
+        run.font.size = Pt(1)

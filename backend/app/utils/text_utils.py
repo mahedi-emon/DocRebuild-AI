@@ -109,3 +109,33 @@ def make_json_serializable(obj):
         return make_json_serializable(obj.tolist())
     else:
         return obj
+
+
+def devanagari_to_bengali(text: str) -> str:
+    """
+    Transliterate Devanagari Unicode characters (0x0900 - 0x097F) 
+    to their Bengali script equivalents (0x0980 - 0x09FF).
+    """
+    if not text:
+        return text
+    result = []
+    for char in text:
+        code = ord(char)
+        # Devanagari range
+        if 0x0900 <= code <= 0x097F:
+            # Special character mappings
+            if code == 0x0935:  # व -> ব
+                result.append('\u09ac')
+            elif code == 0x0930:  # र -> র
+                result.append('\u09b0')
+            else:
+                # Standard offset shift
+                shifted = code + 0x0080
+                if 0x0980 <= shifted <= 0x09FF:
+                    result.append(chr(shifted))
+                else:
+                    result.append(char)
+        else:
+            result.append(char)
+    return "".join(result)
+

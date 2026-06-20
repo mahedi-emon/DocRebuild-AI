@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 def run_self_correction(document_id: str, job_id: str, max_passes: int = 3) -> dict:
     from workers.tasks.orchestrator import get_sync_db
     from app.models.page import Page
-    from app.utils.text_utils import clean_ocr_artifacts, is_bangla_text
+    from app.utils.text_utils import clean_ocr_artifacts, is_bangla_text, devanagari_to_bengali
 
     db = get_sync_db()
     try:
@@ -45,6 +45,7 @@ def run_self_correction(document_id: str, job_id: str, max_passes: int = 3) -> d
 
                 # Pass 1: Always clean OCR artifacts
                 if pass_num == 0:
+                    text = devanagari_to_bengali(text)
                     text = clean_ocr_artifacts(text)
                     text = _normalize_bangla_text(text)
 

@@ -58,7 +58,7 @@ class DocxBuilder:
         output_path: str,
         page_width_inches: float = 8.27,  # A4
         page_height_inches: float = 11.69,  # A4
-        margin_inches: float = 1.0,
+        margin_inches: float = 0.4,
         understanding_text: str = "",
     ) -> str:
         """
@@ -297,7 +297,7 @@ class DocxBuilder:
             self._doc.add_heading(text, level=2)
 
     def _add_paragraph(self, element: dict, assigned_lines: list[dict]) -> None:
-        text = "\n".join(line.get("text", "") for line in assigned_lines) if assigned_lines else ""
+        text = " ".join(line.get("text", "") for line in assigned_lines) if assigned_lines else ""
         if text:
             para = self._doc.add_paragraph()
             run = para.add_run(text)
@@ -328,12 +328,12 @@ class DocxBuilder:
                         run.font.name = "Noto Sans Bengali"
 
     def _add_exercise(self, element: dict, assigned_lines: list[dict]) -> None:
-        text = "\n".join(line.get("text", "") for line in assigned_lines) if assigned_lines else ""
+        text = " ".join(line.get("text", "") for line in assigned_lines) if assigned_lines else ""
         if text:
             para = self._doc.add_paragraph()
             run = para.add_run(text)
             run.font.size = Pt(11)
             run.font.name = "Noto Sans Bengali"
             para.paragraph_format.left_indent = Inches(0.5)
-            para.paragraph_format.space_before = Pt(12)
-            para.paragraph_format.space_after = Pt(4)
+            para.paragraph_format.space_before = Pt(4)
+            para.paragraph_format.space_after = Pt(2)

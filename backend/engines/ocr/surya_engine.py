@@ -79,6 +79,8 @@ class SuryaOCREngine(BaseOCREngine):
             det_predictor=self._det_predictor,
         )
 
+        from app.utils.text_utils import devanagari_to_bengali
+
         lines = []
         all_words = []
         line_id = 0
@@ -86,7 +88,7 @@ class SuryaOCREngine(BaseOCREngine):
         if rec_predictions:
             page_pred = rec_predictions[0]
             for text_line in page_pred.text_lines:
-                text = text_line.text
+                text = devanagari_to_bengali(text_line.text)
                 if not text or not text.strip():
                     continue
 
