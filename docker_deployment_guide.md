@@ -40,7 +40,7 @@ sudo systemctl restart docker
 
 Verify that Docker can access the GPU:
 ```bash
-docker run --rm --gpus all nvidia/cuda:12.4.0-base-ubuntu22.04 nvidia-smi
+docker run --rm --gpus all nvidia/cuda:12.6.0-base-ubuntu24.04 nvidia-smi
 # This should print the H200 GPU details (141 GB VRAM, Driver Version, CUDA Version)
 ```
 
