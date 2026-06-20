@@ -55,19 +55,31 @@ class QwenVLEngine:
             # Monkey-patch any causal LM submodules to support transformers 4.50+
             try:
                 from transformers.generation import GenerationMixin
+                from transformers import GenerationConfig
                 import torch.nn as nn
                 
                 def check_and_patch(obj):
                     if obj is None:
                         return
-                    if isinstance(obj, nn.Module) and not hasattr(obj, "generate"):
+                    # Only patch PyTorch modules that have a config attribute (pretrained models)
+                    if isinstance(obj, nn.Module) and hasattr(obj, "config"):
                         cls = obj.__class__
-                        if GenerationMixin not in cls.__bases__:
+                        # If the module doesn't have the generate method, inject GenerationMixin
+                        if not hasattr(obj, "generate") and GenerationMixin not in cls.__bases__:
                             try:
                                 cls.__bases__ = cls.__bases__ + (GenerationMixin,)
                                 logger.info(f"Dynamically patched {cls.__name__} with GenerationMixin for compatibility")
                             except Exception as e:
                                 logger.debug(f"Could not patch {cls.__name__}: {e}")
+                        
+                        # Ensure generation_config is instantiated on the instance
+                        if getattr(obj, "generation_config", None) is None:
+                            try:
+                                obj.generation_config = GenerationConfig.from_model_config(obj.config)
+                                logger.info(f"Initialized generation_config for {cls.__name__}")
+                            except Exception as e:
+                                logger.debug(f"Could not initialize generation_config for {cls.__name__}: {e}")
+                                
                     for name, child in getattr(obj, "_modules", {}).items():
                         check_and_patch(child)
                         
@@ -112,7 +124,7 @@ class QwenVLEngine:
             )
             return response.strip()
         except Exception as e:
-            logger.error(f"Qwen-VL read_text failed: {e}")
+            logger.exception(f"Qwen-VL read_text failed: {e}")
             return ""
         finally:
             if temp_path and os.path.exists(temp_path):
