@@ -127,6 +127,30 @@ class InternVLEngine:
                 trust_remote_code=True,
                 torch_dtype=dtype,
             )
+            
+            # Monkey-patch any causal LM submodules (like InternLM2ForCausalLM) to support transformers 4.50+
+            try:
+                from transformers.generation import GenerationMixin
+                import torch.nn as nn
+                
+                def check_and_patch(obj):
+                    if obj is None:
+                        return
+                    if isinstance(obj, nn.Module) and not hasattr(obj, "generate"):
+                        cls = obj.__class__
+                        if GenerationMixin not in cls.__bases__:
+                            try:
+                                cls.__bases__ = cls.__bases__ + (GenerationMixin,)
+                                logger.info(f"Dynamically patched {cls.__name__} with GenerationMixin for compatibility")
+                            except Exception as e:
+                                logger.debug(f"Could not patch {cls.__name__}: {e}")
+                    for name, child in getattr(obj, "_modules", {}).items():
+                        check_and_patch(child)
+                        
+                check_and_patch(self._model)
+            except Exception as patch_err:
+                logger.warning(f"Error executing transformers compat monkey-patch: {patch_err}")
+
             if device != "cuda":
                 self._model = self._model.to(device)
                 
