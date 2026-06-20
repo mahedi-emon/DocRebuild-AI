@@ -7,7 +7,7 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 python3-venv python3-pip python3-dev \
     tesseract-ocr tesseract-ocr-ben tesseract-ocr-eng tesseract-ocr-ara \
-    poppler-utils libgl1-mesa-glx libglib2.0-0 \
+    poppler-utils libgl1 libglib2.0-0 \
     libjpeg-dev libpng-dev default-jre-headless \
     build-essential git \
     && rm -rf /var/lib/apt/lists/*
