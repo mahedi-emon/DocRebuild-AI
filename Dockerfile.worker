@@ -6,7 +6,7 @@ WORKDIR /app
 # System dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3.12 python3.12-venv python3-pip python3.12-dev \
-    tesseract-ocr tesseract-ocr-ben tesseract-ocr-eng \
+    tesseract-ocr tesseract-ocr-ben tesseract-ocr-eng tesseract-ocr-ara \
     poppler-utils libgl1-mesa-glx libglib2.0-0 \
     libjpeg-dev libpng-dev default-jre-headless \
     build-essential git \
@@ -15,9 +15,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.12 1
 
 # Python dependencies
-COPY backend/pyproject.toml .
+COPY backend/requirements.txt .
 RUN pip install --no-cache-dir torch torchvision --index-url https://download.pytorch.org/whl/cu124
-RUN pip install --no-cache-dir -e "." 2>/dev/null || pip install --no-cache-dir .
+RUN pip install --no-cache-dir paddlepaddle-gpu==3.0.0b1 -i https://www.paddlepaddle.org.cn/packages/simple/
+RUN pip install --no-cache-dir detectron2 -f https://dl.fbaipublicfiles.com/detectron2/wheels/cu124/torch2.4/index.html 2>/dev/null || true
+RUN pip install --no-cache-dir -r requirements.txt
 
 COPY backend/ .
 
